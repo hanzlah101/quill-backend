@@ -1,28 +1,37 @@
 import { NestFactory } from "@nestjs/core"
 import { Logger } from "@nestjs/common"
-import { OpenApiGeneratorV31 } from "@asteasolutions/zod-to-openapi"
 import { apiReference } from "@scalar/nestjs-api-reference"
+import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger"
 import { AppModule } from "@/modules/app.module"
-import { registry } from "@/utils/zod-openapi"
+import { EnvService } from "@/modules/env/env.service"
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
   app.setGlobalPrefix("/api")
 
-  const generator = new OpenApiGeneratorV31(registry.definitions)
-  const document = generator.generateDocument({
-    openapi: "3.1.0",
-    info: {
-      title: "Quill API Docs",
-      version: "1.0.0"
-    }
+  const configService = app.get(EnvService)
+
+  app.enableCors({
+    credentials: true,
+    origin: configService.get("CLIENT_URL"),
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    exposedHeaders: ["Content-Length"]
   })
 
-  app.use("/api/docs", apiReference({ content: document }))
+  const config = new DocumentBuilder()
+    .setTitle("Quill API")
+    .setDescription("API documentation & testing interface for the Quill.")
+    .setVersion("1.0.0")
+    .build()
 
-  const port = process.env.PORT ?? 8080
+  const document = SwaggerModule.createDocument(app, config)
+
+  app.use("/api", apiReference({ content: document, theme: "none" }))
+
+  const port = configService.get("PORT")
   await app.listen(port)
 
-  Logger.log(`Server is running on port ${port}`, "Bootstrap")
+  Logger.log(`Server is running on http://localhost:${port}`, "Bootstrap")
 }
 void bootstrap()
