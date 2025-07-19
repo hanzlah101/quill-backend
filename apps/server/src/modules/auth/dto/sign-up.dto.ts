@@ -1,12 +1,12 @@
+import { Match } from "@/decorators/match.decorator"
 import { ApiProperty } from "@nestjs/swagger"
 import {
   IsEmail,
+  IsString,
   IsStrongPassword,
   MaxLength,
   MinLength
 } from "class-validator"
-
-import { Match } from "@/decorators/match.decorator"
 
 export class SignUpDTO {
   @ApiProperty({
@@ -15,6 +15,7 @@ export class SignUpDTO {
     minLength: 1,
     maxLength: 255
   })
+  @IsString()
   @MinLength(1)
   @MaxLength(255)
   readonly name: string
@@ -25,6 +26,7 @@ export class SignUpDTO {
     minLength: 1,
     maxLength: 320
   })
+  @IsString()
   @IsEmail()
   @MaxLength(320)
   readonly email: string
@@ -36,6 +38,7 @@ export class SignUpDTO {
     minLength: 8,
     maxLength: 128
   })
+  @IsString()
   @MinLength(8)
   @MaxLength(128)
   @IsStrongPassword()
@@ -43,9 +46,13 @@ export class SignUpDTO {
 
   @ApiProperty({
     example: "Str0ngP@ssword!",
-    description: "Must match the password field exactly to confirm user intent"
+    description: "Must match the password field exactly to confirm user intent",
+    minLength: 1,
+    maxLength: 128
   })
+  @IsString()
   @MinLength(1)
+  @MaxLength(128)
   @Match("password", { message: "Passwords don't match" })
   readonly confirmPassword: string
 }

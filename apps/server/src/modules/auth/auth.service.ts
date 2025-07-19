@@ -7,7 +7,8 @@ import { LoginDTO } from "./dto/login.dto"
 import { customAlphabet } from "nanoid"
 import { EnvService } from "../env/env.service"
 import { MailerService } from "@nestjs-modules/mailer"
-import { verificationEmail } from "@/utils/email-templates"
+import { resetPasswordEmail, verificationEmail } from "@/utils/email-templates"
+import { UserDTO } from "./dto/user.dto"
 import { sha256 } from "@oslojs/crypto/sha2"
 import { COOKIE_OPTIONS, SESSION_COOKIE_NAME } from "@/utils/constants"
 import type { Response, Request } from "express"
@@ -15,7 +16,6 @@ import {
   encodeBase32LowerCaseNoPadding,
   encodeHexLowerCase
 } from "@oslojs/encoding"
-import { UserDTO } from "./dto/user.dto"
 
 @Injectable()
 export class AuthService {
@@ -38,6 +38,45 @@ export class AuthService {
     await this.sendVerificationEmail(user.id, user.email)
 
     return user
+  }
+
+  async verifyEmail(user: UserDTO, token: string) {
+    if (user.emailVerified) {
+      throw new BadRequestException("Email already verified")
+    }
+
+    const verificationToken =
+      await this.prisma.emailVerificationToken.findUnique({
+        where: { userId_token: { userId: user.id, token } }
+      })
+
+    if (!verificationToken) {
+      throw new BadRequestException("Invalid verification code")
+    }
+
+    if (verificationToken.expiresAt.getTime() < new Date().getTime()) {
+      await this.prisma.emailVerificationToken.delete({
+        where: { userId_token: { userId: verificationToken.userId, token } }
+      })
+      throw new BadRequestException("Verification code has expired")
+    }
+
+    await this.prisma.user.update({
+      where: { id: verificationToken.userId },
+      data: { emailVerified: true }
+    })
+
+    await this.prisma.emailVerificationToken.delete({
+      where: { userId_token: { userId: verificationToken.userId, token } }
+    })
+  }
+
+  async resendVerification(user: UserDTO) {
+    if (user.emailVerified) {
+      throw new BadRequestException("Email already verified")
+    }
+
+    await this.sendVerificationEmail(user.id, user.email)
   }
 
   async login({ email, password }: LoginDTO) {
@@ -75,15 +114,80 @@ export class AuthService {
     return userData
   }
 
-  async me(userId: string) {
-    return this.prisma.user.findUnique({
-      where: { id: userId },
-      omit: { passwordHash: true }
+  async requestPasswordReset(email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email }
+    })
+
+    if (!user) {
+      throw new BadRequestException("User not found")
+    }
+
+    const token = this.generateSessionToken()
+    const id = encodeHexLowerCase(sha256(new TextEncoder().encode(token)))
+
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+    await this.prisma.passwordResetSession.upsert({
+      create: {
+        id,
+        token,
+        userId: user.id,
+        expiresAt
+      },
+      update: {
+        id,
+        token,
+        expiresAt
+      },
+      where: { userId: user.id }
+    })
+
+    await this.mailer.sendMail({
+      to: email,
+      subject: "Quill Password Reset Request",
+      ...resetPasswordEmail(token)
+    })
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const id = encodeHexLowerCase(sha256(new TextEncoder().encode(token)))
+
+    const resetSession = await this.prisma.passwordResetSession.findUnique({
+      where: { id }
+    })
+
+    if (!resetSession) {
+      throw new BadRequestException("Invalid reset password token")
+    }
+
+    if (resetSession.expiresAt.getTime() < Date.now()) {
+      await this.prisma.passwordResetSession.delete({
+        where: { id: resetSession.id }
+      })
+      throw new BadRequestException("Session has expired")
+    }
+
+    const passwordHash = await hash(newPassword, this.passwordOpts)
+
+    await this.prisma.user.update({
+      where: { id: resetSession.userId },
+      data: { passwordHash }
+    })
+
+    await this.prisma.passwordResetSession.delete({
+      where: { id: resetSession.id }
     })
   }
 
   async logout(sessionId: string) {
     await this.prisma.session.delete({ where: { id: sessionId } })
+  }
+
+  async me(userId: string) {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      omit: { passwordHash: true }
+    })
   }
 
   async createSession(userId: string, req: Request, res: Response) {
@@ -123,7 +227,7 @@ export class AuthService {
       return { user: null, session: null }
     }
 
-    if (Date.now() >= session.expiresAt.getTime()) {
+    if (session.expiresAt.getTime() < Date.now()) {
       await this.prisma.session.delete({
         where: { id: session.id }
       })
@@ -141,45 +245,6 @@ export class AuthService {
     }
 
     return { user: session.user, session }
-  }
-
-  async resendVerificationEmail(user: UserDTO) {
-    if (user.emailVerified) {
-      throw new BadRequestException("Email already verified")
-    }
-
-    await this.sendVerificationEmail(user.id, user.email)
-  }
-
-  async verifyEmail(user: UserDTO, token: string) {
-    if (user.emailVerified) {
-      throw new BadRequestException("Email already verified")
-    }
-
-    const verificationToken =
-      await this.prisma.emailVerificationToken.findUnique({
-        where: { userId_token: { userId: user.id, token } }
-      })
-
-    if (!verificationToken) {
-      throw new BadRequestException("Invalid verification code")
-    }
-
-    if (verificationToken.expiresAt.getTime() < new Date().getTime()) {
-      await this.prisma.emailVerificationToken.delete({
-        where: { userId_token: { userId: verificationToken.userId, token } }
-      })
-      throw new BadRequestException("Verification code has expired")
-    }
-
-    await this.prisma.user.update({
-      where: { id: verificationToken.userId },
-      data: { emailVerified: true }
-    })
-
-    await this.prisma.emailVerificationToken.delete({
-      where: { userId_token: { userId: verificationToken.userId, token } }
-    })
   }
 
   private getClientIP(req: Request) {
