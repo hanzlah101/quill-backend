@@ -1,12 +1,35 @@
-import { Module } from "@nestjs/common"
+import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common"
+import { AuthMiddleware } from "@/middleware/auth.middleware"
 import { ConfigModule } from "@nestjs/config"
 import { validateEnv } from "@/utils/env"
 import { EnvModule } from "./env/env.module"
+import { AuthModule } from "./auth/auth.module"
+import { PrismaModule } from "./prisma/prisma.module"
+import { MailerModule } from "@nestjs-modules/mailer"
+import { EnvService } from "./env/env.service"
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     EnvModule,
-    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv })
+    PrismaModule,
+    MailerModule.forRootAsync({
+      inject: [EnvService],
+      useFactory: (env: EnvService) => ({
+        transport: {
+          host: env.get("EMAIL_HOST"),
+          auth: {
+            user: env.get("EMAIL_FROM"),
+            pass: env.get("EMAIL_PASSWORD")
+          }
+        }
+      })
+    }),
+    AuthModule
   ]
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(AuthMiddleware).forRoutes("{*splat}")
+  }
+}

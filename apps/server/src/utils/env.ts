@@ -2,9 +2,18 @@ import { z } from "zod"
 import { Logger } from "@nestjs/common"
 
 const envSchema = z.object({
+  NODE_ENV: z.enum(["development", "production"]).default("development"),
   PORT: z.coerce.number().default(8080),
   DATABASE_URL: z.url(),
-  CLIENT_URL: z.url()
+  CLIENT_URL: z.url(),
+  EMAIL_HOST: z.string().min(1),
+  EMAIL_FROM: z.string().min(1),
+  EMAIL_PASSWORD: z.string().min(1),
+  AWS_S3_BUCKET_NAME: z.string().min(1),
+  AWS_S3_ACCESS_KEY: z.string().min(1),
+  AWS_S3_SECRET_ACCESS_KEY: z.string().min(1),
+  AWS_S3_REGION: z.string().min(1),
+  AWS_CLOUDFRONT_DISTRIBUTION_URL: z.url()
 })
 
 export function validateEnv(env: unknown) {
