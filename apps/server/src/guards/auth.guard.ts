@@ -15,7 +15,7 @@ export class AuthGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const request: AuthenticatedRequest = context.switchToHttp().getRequest()
-    if (!request.user) {
+    if (!request.user || !request.session) {
       throw new UnauthorizedException("Unauthorized")
     }
 
@@ -24,10 +24,10 @@ export class AuthGuard implements CanActivate {
       [context.getHandler(), context.getClass()]
     )
 
-    if (checkEmailVerification && !request.user.emailVerified) {
-      throw new ForbiddenException("Email not verified")
+    if (checkEmailVerification === false || request.user.emailVerified) {
+      return true
     }
 
-    return true
+    throw new ForbiddenException("Email not verified")
   }
 }
