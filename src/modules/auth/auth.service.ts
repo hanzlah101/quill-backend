@@ -15,6 +15,7 @@ import {
   encodeBase32LowerCaseNoPadding,
   encodeHexLowerCase
 } from "@oslojs/encoding"
+import { UserDTO } from "./dto/user.dto"
 
 @Injectable()
 export class AuthService {
@@ -34,7 +35,7 @@ export class AuthService {
       })
       .catch(handleUniqueException("User already exists"))
 
-    await this.sendVerificationEmail(email, false)
+    await this.sendVerificationEmail(user.id, user.email)
 
     return user
   }
@@ -68,14 +69,10 @@ export class AuthService {
     }
 
     if (!userData.emailVerified) {
-      // await this.sendVerificationEmail(userData.email)
+      await this.sendVerificationEmail(userData.id, userData.email)
     }
 
     return userData
-  }
-
-  async resendVerificationEmail(email: string) {
-    await this.sendVerificationEmail(email)
   }
 
   async me(userId: string) {
@@ -146,6 +143,45 @@ export class AuthService {
     return { user: session.user, session }
   }
 
+  async resendVerificationEmail(user: UserDTO) {
+    if (user.emailVerified) {
+      throw new BadRequestException("Email already verified")
+    }
+
+    await this.sendVerificationEmail(user.id, user.email)
+  }
+
+  async verifyEmail(user: UserDTO, token: string) {
+    if (user.emailVerified) {
+      throw new BadRequestException("Email already verified")
+    }
+
+    const verificationToken =
+      await this.prisma.emailVerificationToken.findUnique({
+        where: { userId_token: { userId: user.id, token } }
+      })
+
+    if (!verificationToken) {
+      throw new BadRequestException("Invalid verification code")
+    }
+
+    if (verificationToken.expiresAt.getTime() < new Date().getTime()) {
+      await this.prisma.emailVerificationToken.delete({
+        where: { userId_token: { userId: verificationToken.userId, token } }
+      })
+      throw new BadRequestException("Verification code has expired")
+    }
+
+    await this.prisma.user.update({
+      where: { id: verificationToken.userId },
+      data: { emailVerified: true }
+    })
+
+    await this.prisma.emailVerificationToken.delete({
+      where: { userId_token: { userId: verificationToken.userId, token } }
+    })
+  }
+
   private getClientIP(req: Request) {
     const xForwardedFor = req.headers["x-forwarded-for"]
     if (typeof xForwardedFor === "string") {
@@ -155,24 +191,17 @@ export class AuthService {
     return req.ip || null
   }
 
-  private async sendVerificationEmail(identifier: string, cleanup = true) {
-    if (cleanup) {
-      await this.prisma.emailVerificationToken.deleteMany({
-        where: { identifier }
-      })
-    }
-
+  private async sendVerificationEmail(userId: string, email: string) {
     const token = customAlphabet("1234567890", 6)()
-    await this.prisma.emailVerificationToken.create({
-      data: {
-        token,
-        identifier,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
-      }
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+    await this.prisma.emailVerificationToken.upsert({
+      create: { token, userId, expiresAt },
+      update: { token, expiresAt },
+      where: { userId }
     })
 
     await this.mailer.sendMail({
-      to: identifier,
+      to: email,
       subject: "Quill Verification Code",
       ...verificationEmail(token)
     })

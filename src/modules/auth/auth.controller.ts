@@ -18,6 +18,8 @@ import { AuthGuard } from "@/guards/auth.guard"
 import { GuestGuard } from "@/guards/guest.guard"
 import { CheckEmailVerification } from "@/decorators/email-verification.decorator"
 import { Session, User } from "@/decorators/session.decorator"
+import { SESSION_COOKIE_NAME } from "@/utils/constants"
+import { VerifyEmailDTO } from "./dto/verify-email.dto"
 
 @ApiTags("Auth")
 @Controller("auth")
@@ -47,6 +49,38 @@ export class AuthController {
     return user
   }
 
+  @Post("verify-code")
+  @UseGuards(AuthGuard)
+  @CheckEmailVerification(false)
+  @HttpCode(204)
+  @ApiBody({ type: VerifyEmailDTO })
+  @ApiResponse({
+    status: 204,
+    description: "Email verified successfully"
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Invalid or expired verification code"
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  async verifyEmail(@User() user: UserDTO, @Body() body: VerifyEmailDTO) {
+    await this.authService.verifyEmail(user, body.token)
+  }
+
+  @Post("resend-email")
+  @UseGuards(AuthGuard)
+  @CheckEmailVerification(false)
+  @HttpCode(204)
+  @ApiResponse({
+    status: 204,
+    description: "Verification email sent successfully"
+  })
+  @ApiResponse({ status: 400, description: "Email already verified" })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  async resendVerificationEmail(@User() user: UserDTO) {
+    await this.authService.resendVerificationEmail(user)
+  }
+
   @Post("login")
   @UseGuards(GuestGuard)
   @HttpCode(200)
@@ -70,19 +104,6 @@ export class AuthController {
     return user
   }
 
-  @Get("me")
-  @UseGuards(AuthGuard)
-  @CheckEmailVerification(false)
-  @ApiResponse({
-    status: 200,
-    description: "Returns the current user",
-    type: UserDTO
-  })
-  @ApiResponse({ status: 401, description: "Unauthorized" })
-  me(@User() user: Express.User) {
-    return user
-  }
-
   @Post("logout")
   @HttpCode(204)
   @UseGuards(AuthGuard)
@@ -96,6 +117,19 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response
   ) {
     await this.authService.logout(session.id)
-    res.clearCookie("session_token")
+    res.clearCookie(SESSION_COOKIE_NAME)
+  }
+
+  @Get("me")
+  @UseGuards(AuthGuard)
+  @CheckEmailVerification(false)
+  @ApiResponse({
+    status: 200,
+    description: "Returns the current user",
+    type: UserDTO
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  me(@User() user: Express.User) {
+    return user
   }
 }
