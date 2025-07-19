@@ -27,13 +27,13 @@ export class UserDTO {
 
   @ApiProperty({
     description: "The time when the user was created",
-    example: new Date()
+    example: "2024-01-01T00:00:00.000Z"
   })
   createdAt: Date
 
   @ApiProperty({
     description: "The time when the user was last updated",
-    example: new Date()
+    example: "2024-01-01T00:00:00.000Z"
   })
   updatedAt: Date
 }

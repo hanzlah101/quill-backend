@@ -1,4 +1,5 @@
 import { NestFactory } from "@nestjs/core"
+import { NestExpressApplication } from "@nestjs/platform-express"
 import { apiReference } from "@scalar/nestjs-api-reference"
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger"
 import { AppModule } from "@/modules/app.module"
@@ -12,7 +13,7 @@ import {
 } from "@nestjs/common"
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  const app = await NestFactory.create<NestExpressApplication>(AppModule)
   app.setGlobalPrefix("/api")
 
   const configService = app.get(EnvService)
@@ -26,6 +27,7 @@ async function bootstrap() {
   })
 
   app.use(cookieParser())
+  app.set("trust proxy", true)
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -64,7 +66,7 @@ async function bootstrap() {
       withCredentials: true,
       defaultHttpClient: {
         targetKey: "node",
-        clientKey: "undici"
+        clientKey: "fetch"
       }
     })
   )
