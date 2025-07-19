@@ -18,14 +18,14 @@ model User {
 
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
-  passwordResetTokens     PasswordResetToken[]
+  passwordResetTokens     PasswordResetSession[]
 
   @@index([email])
   @@map("users")
 }
 
 model Session {
-  id        String   @id @db.VarChar(96)
+  id        String   @id @db.VarChar(255)
   ipAddress String?  @db.VarChar(45)
   userAgent String?  @db.VarChar(255)
   expiresAt DateTime
@@ -52,14 +52,12 @@ model EmailVerificationToken {
   @@map("email_verification_tokens")
 }
 
-model PasswordResetToken {
-  token     String   @unique @db.VarChar(64)
+model PasswordResetSession {
+  id        String   @id @default(cuid()) @db.VarChar(36)
   expiresAt DateTime
 
   userId String @unique @db.VarChar(36)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@id([userId, token])
-  @@index([token])
-  @@map("password_reset_tokens")
+  @@map("password_reset_sessions")
 }

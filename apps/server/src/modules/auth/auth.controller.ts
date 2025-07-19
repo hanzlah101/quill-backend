@@ -3,13 +3,14 @@ import {
   Controller,
   Get,
   HttpCode,
+  Param,
   Post,
   Req,
   Res,
   UseGuards
 } from "@nestjs/common"
 import { AuthService } from "./auth.service"
-import { ApiBody, ApiResponse, ApiTags } from "@nestjs/swagger"
+import { ApiBody, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger"
 import { SignUpDTO } from "./dto/sign-up.dto"
 import { UserDTO } from "./dto/user.dto"
 import { LoginDTO } from "./dto/login.dto"
@@ -20,6 +21,10 @@ import { CheckEmailVerification } from "@/decorators/email-verification.decorato
 import { Session, User } from "@/decorators/session.decorator"
 import { SESSION_COOKIE_NAME } from "@/utils/constants"
 import { VerifyEmailDTO } from "./dto/verify-email.dto"
+import {
+  ResetPasswordDTO,
+  ResetPasswordRequestDTO
+} from "./dto/reset-password.dto"
 
 @ApiTags("Auth")
 @Controller("auth")
@@ -43,7 +48,7 @@ export class AuthController {
     @Body() body: SignUpDTO,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response
-  ): Promise<UserDTO> {
+  ) {
     const user = await this.authService.signUp(body)
     await this.authService.createSession(user.id, req, res)
     return user
@@ -64,10 +69,10 @@ export class AuthController {
   })
   @ApiResponse({ status: 401, description: "Unauthorized" })
   async verifyEmail(@User() user: UserDTO, @Body() body: VerifyEmailDTO) {
-    await this.authService.verifyEmail(user, body.token)
+    await this.authService.verifyEmail(user, body.code)
   }
 
-  @Post("resend-email")
+  @Post("resend-verification")
   @UseGuards(AuthGuard)
   @CheckEmailVerification(false)
   @HttpCode(204)
@@ -78,7 +83,7 @@ export class AuthController {
   @ApiResponse({ status: 400, description: "Email already verified" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
   async resendVerificationEmail(@User() user: UserDTO) {
-    await this.authService.resendVerificationEmail(user)
+    await this.authService.resendVerification(user)
   }
 
   @Post("login")
@@ -98,10 +103,48 @@ export class AuthController {
     @Body() body: LoginDTO,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response
-  ): Promise<UserDTO> {
+  ) {
     const user = await this.authService.login(body)
     await this.authService.createSession(user.id, req, res)
     return user
+  }
+
+  @Post("reset-password")
+  @UseGuards(GuestGuard)
+  @HttpCode(204)
+  @ApiBody({ type: ResetPasswordRequestDTO })
+  @ApiResponse({
+    status: 204,
+    description: "Password reset request successful"
+  })
+  @ApiResponse({ status: 422, description: "Validation failed" })
+  @ApiResponse({ status: 400, description: "Invalid email address" })
+  @ApiResponse({ status: 500, description: "Internal server error" })
+  async requestPasswordReset(@Body() body: ResetPasswordRequestDTO) {
+    await this.authService.requestPasswordReset(body.email)
+  }
+
+  @Post("reset-password/:token")
+  @UseGuards(GuestGuard)
+  @HttpCode(204)
+  @ApiBody({ type: ResetPasswordDTO })
+  @ApiParam({
+    name: "token",
+    description: "The password reset token",
+    example: "abc123xyz456"
+  })
+  @ApiResponse({
+    status: 204,
+    description: "Password reset successful"
+  })
+  @ApiResponse({ status: 422, description: "Validation failed" })
+  @ApiResponse({ status: 400, description: "Invalid reset token" })
+  @ApiResponse({ status: 500, description: "Internal server error" })
+  async resetPassword(
+    @Param("token") token: string,
+    @Body() body: ResetPasswordDTO
+  ) {
+    await this.authService.resetPassword(token, body.newPassword)
   }
 
   @Post("logout")

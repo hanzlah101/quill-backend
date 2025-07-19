@@ -10,5 +10,5 @@ export class VerifyEmailDTO {
   })
   @IsString()
   @Matches(/^\d{6}$/, { message: "Invalid verification code" })
-  token: string
+  code: string
 }
