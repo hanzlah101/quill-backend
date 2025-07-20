@@ -1,5 +1,4 @@
-import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common"
-import { AuthMiddleware } from "@/middleware/auth.middleware"
+import { Module } from "@nestjs/common"
 import { ConfigModule } from "@nestjs/config"
 import { validateEnv } from "@/utils/env"
 import { EnvModule } from "./env/env.module"
@@ -7,6 +6,7 @@ import { AuthModule } from "./auth/auth.module"
 import { PrismaModule } from "./prisma/prisma.module"
 import { MailerModule } from "@nestjs-modules/mailer"
 import { EnvService } from "./env/env.service"
+import { AuthMiddleware } from "@/middleware/auth.middleware"
 
 @Module({
   imports: [
@@ -26,10 +26,7 @@ import { EnvService } from "./env/env.service"
       })
     }),
     AuthModule
-  ]
+  ],
+  providers: [AuthMiddleware]
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(AuthMiddleware).forRoutes("{*splat}")
-  }
-}
+export class AppModule {}

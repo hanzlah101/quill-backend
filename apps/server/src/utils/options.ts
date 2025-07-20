@@ -1,18 +1,19 @@
 import { CookieOptions } from "express"
 import { DoubleCsrfConfigOptions } from "csrf-csrf"
 import { CorsOptions } from "@nestjs/common/interfaces/external/cors-options.interface"
+import { COOKIES } from "./constants"
 import {
   UnprocessableEntityException,
   ValidationPipeOptions
 } from "@nestjs/common"
 
-export function cookieOpts(opts: CookieOptions): CookieOptions {
+export function cookieOpts(expires: Date): CookieOptions {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    ...opts
+    expires
   }
 }
 
@@ -21,7 +22,7 @@ export function corsOpts(origin: CorsOptions["origin"]): CorsOptions {
     origin,
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-csrf-token"],
     exposedHeaders: ["Content-Length"]
   }
 }
@@ -43,8 +44,12 @@ export const validationPipeOpts: ValidationPipeOptions = {
 
 export function csrfOpts(secret: string): DoubleCsrfConfigOptions {
   return {
+    size: 32,
+    cookieName: COOKIES.csrf,
     getSecret: () => secret,
-    getSessionIdentifier: (req) => req.session?.id ?? "",
-    cookieOptions: cookieOpts({ maxAge: 24 * 60 * 60 * 1000 })
+    skipCsrfProtection: (req) => !req.session,
+    getSessionIdentifier: (req) => req.session?.id as string,
+    getCsrfTokenFromRequest: (req) => req.headers[COOKIES.csrf],
+    cookieOptions: cookieOpts(new Date(Date.now() + 60 * 60 * 1000)) // 1 hour
   }
 }
