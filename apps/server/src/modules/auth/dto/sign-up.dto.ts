@@ -21,7 +21,7 @@ export class SignUpDTO {
   readonly name: string
 
   @ApiProperty({
-    example: "john@example.com",
+    example: "user@example.com",
     description: "Valid email address used for login and communication",
     minLength: 1,
     maxLength: 320

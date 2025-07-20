@@ -1,7 +1,8 @@
 import { Injectable, NestMiddleware } from "@nestjs/common"
 import { AuthService } from "@/modules/auth/auth.service"
 import { NextFunction, Request, Response } from "express"
-import { COOKIE_OPTIONS, SESSION_COOKIE_NAME } from "@/utils/constants"
+import { SESSION_COOKIE_NAME } from "@/utils/constants"
+import { cookieOpts } from "@/utils/options"
 
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
@@ -15,10 +16,11 @@ export class AuthMiddleware implements NestMiddleware {
       if (user && session) {
         req.user = user
         req.session = session
-        res.cookie(SESSION_COOKIE_NAME, token, {
-          ...COOKIE_OPTIONS,
-          expires: session.expiresAt
-        })
+        res.cookie(
+          SESSION_COOKIE_NAME,
+          token,
+          cookieOpts({ expires: session.expiresAt })
+        )
       } else {
         res.clearCookie(SESSION_COOKIE_NAME)
         req.user = null

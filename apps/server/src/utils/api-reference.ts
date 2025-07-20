@@ -1,0 +1,31 @@
+import { STATIC_ASSETS } from "./constants"
+import { NestExpressApplication } from "@nestjs/platform-express"
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger"
+import { apiReference } from "@scalar/nestjs-api-reference"
+
+export function setupAPIReference(app: NestExpressApplication) {
+  const config = new DocumentBuilder()
+    .setTitle("Quill API")
+    .setDescription(
+      "API documentation & testing interface for the Quill, a way to talk to your documents."
+    )
+    .setVersion("1.0.0")
+    .build()
+
+  const document = SwaggerModule.createDocument(app, config)
+  app.use(
+    "/api/docs",
+    apiReference({
+      content: document,
+      title: config.info.title,
+      description: config.info.description,
+      theme: "kepler",
+      favicon: STATIC_ASSETS.favicon,
+      withCredentials: true,
+      defaultHttpClient: {
+        targetKey: "node",
+        clientKey: "fetch"
+      }
+    })
+  )
+}

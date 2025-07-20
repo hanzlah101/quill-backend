@@ -13,7 +13,8 @@ const envSchema = z.object({
   AWS_S3_ACCESS_KEY: z.string().min(1),
   AWS_S3_SECRET_ACCESS_KEY: z.string().min(1),
   AWS_S3_REGION: z.string().min(1),
-  AWS_CLOUDFRONT_DISTRIBUTION_URL: z.url()
+  AWS_CLOUDFRONT_DISTRIBUTION_URL: z.url(),
+  CSRF_SECRET: z.string().min(1)
 })
 
 export function validateEnv(env: unknown) {

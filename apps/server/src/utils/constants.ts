@@ -5,11 +5,4 @@ export const STATIC_ASSETS = {
   logo: `${CLOUDFRONT_URL}/static/logo.png`
 }
 
-export const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax",
-  path: "/"
-} as const
-
 export const SESSION_COOKIE_NAME = "session_token"
