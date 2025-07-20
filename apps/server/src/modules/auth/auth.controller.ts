@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Req,
   Res,
@@ -21,6 +22,7 @@ import { CheckEmailVerification } from "@/decorators/email-verification.decorato
 import { Session, User } from "@/decorators/session.decorator"
 import { SESSION_COOKIE_NAME } from "@/utils/constants"
 import { VerifyEmailDTO } from "./dto/verify-email.dto"
+import { ChangePasswordDTO } from "./dto/change-password.dto"
 import {
   ResetPasswordDTO,
   ResetPasswordRequestDTO
@@ -54,7 +56,7 @@ export class AuthController {
     return user
   }
 
-  @Post("verify-code")
+  @Post("verify")
   @UseGuards(AuthGuard)
   @CheckEmailVerification(false)
   @HttpCode(204)
@@ -72,7 +74,7 @@ export class AuthController {
     await this.authService.verifyEmail(user, body.code)
   }
 
-  @Post("resend-verification")
+  @Post("verify/resend")
   @UseGuards(AuthGuard)
   @CheckEmailVerification(false)
   @HttpCode(204)
@@ -109,7 +111,7 @@ export class AuthController {
     return user
   }
 
-  @Post("reset-password")
+  @Post("reset-pw")
   @UseGuards(GuestGuard)
   @HttpCode(204)
   @ApiBody({ type: ResetPasswordRequestDTO })
@@ -124,7 +126,7 @@ export class AuthController {
     await this.authService.requestPasswordReset(body.email)
   }
 
-  @Post("reset-password/:token")
+  @Patch("reset-pw/:token")
   @UseGuards(GuestGuard)
   @HttpCode(204)
   @ApiBody({ type: ResetPasswordDTO })
@@ -145,6 +147,28 @@ export class AuthController {
     @Body() body: ResetPasswordDTO
   ) {
     await this.authService.resetPassword(token, body.newPassword)
+  }
+
+  @Patch("change-pw")
+  @UseGuards(AuthGuard)
+  @HttpCode(204)
+  @ApiBody({ type: ChangePasswordDTO })
+  @ApiResponse({
+    status: 204,
+    description: "Password changed successfully"
+  })
+  @ApiResponse({ status: 422, description: "Validation failed" })
+  @ApiResponse({ status: 409, description: "Linked to a social account" })
+  @ApiResponse({ status: 400, description: "Current password is incorrect" })
+  @ApiResponse({ status: 500, description: "Internal server error" })
+  async changePassword(
+    @User() user: Express.User,
+    @Body() body: ChangePasswordDTO,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response
+  ) {
+    await this.authService.changePassword(user.id, body)
+    await this.authService.createSession(user.id, req, res)
   }
 
   @Post("logout")

@@ -53,7 +53,7 @@ model EmailVerificationToken {
 }
 
 model PasswordResetSession {
-  id        String   @id @default(cuid()) @db.VarChar(36)
+  id        String   @id @db.VarChar(255)
   expiresAt DateTime
 
   userId String @unique @db.VarChar(36)

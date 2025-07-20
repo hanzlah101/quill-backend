@@ -1,16 +1,22 @@
-import { BadRequestException, Injectable } from "@nestjs/common"
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  UnprocessableEntityException
+} from "@nestjs/common"
 import { hash, verify } from "@node-rs/argon2"
 import { SignUpDTO } from "./dto/sign-up.dto"
 import { PrismaService } from "@/modules/prisma/prisma.service"
 import { handleUniqueException } from "@/utils/helpers"
 import { LoginDTO } from "./dto/login.dto"
-import { customAlphabet } from "nanoid"
 import { EnvService } from "../env/env.service"
 import { MailerService } from "@nestjs-modules/mailer"
 import { resetPasswordEmail, verificationEmail } from "@/utils/email-templates"
 import { UserDTO } from "./dto/user.dto"
 import { sha256 } from "@oslojs/crypto/sha2"
-import { COOKIE_OPTIONS, SESSION_COOKIE_NAME } from "@/utils/constants"
+import { SESSION_COOKIE_NAME } from "@/utils/constants"
+import { ChangePasswordDTO } from "./dto/change-password.dto"
+import { cookieOpts } from "@/utils/options"
 import type { Response, Request } from "express"
 import {
   encodeBase32LowerCaseNoPadding,
@@ -93,7 +99,7 @@ export class AuthService {
 
     if (!passwordHash) {
       throw new BadRequestException(
-        "This account is linked to a social account."
+        "This account is linked to a social account"
       )
     }
 
@@ -130,13 +136,11 @@ export class AuthService {
     await this.prisma.passwordResetSession.upsert({
       create: {
         id,
-        token,
         userId: user.id,
         expiresAt
       },
       update: {
         id,
-        token,
         expiresAt
       },
       where: { userId: user.id }
@@ -179,6 +183,47 @@ export class AuthService {
     })
   }
 
+  async changePassword(
+    userId: string,
+    { currentPassword, newPassword }: ChangePasswordDTO
+  ) {
+    if (newPassword === currentPassword) {
+      throw new UnprocessableEntityException(
+        "New password cannot be the same as current"
+      )
+    }
+
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { passwordHash: true }
+    })
+
+    if (!user.passwordHash) {
+      throw new ConflictException("This account is linked to a social account")
+    }
+
+    const isCurrentPasswordValid = await verify(
+      user.passwordHash,
+      currentPassword,
+      this.passwordOpts
+    )
+
+    if (!isCurrentPasswordValid) {
+      throw new BadRequestException("Current password is incorrect")
+    }
+
+    const newPasswordHash = await hash(newPassword, this.passwordOpts)
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newPasswordHash }
+    })
+
+    await this.prisma.session.deleteMany({
+      where: { userId }
+    })
+  }
+
   async logout(sessionId: string) {
     await this.prisma.session.delete({ where: { id: sessionId } })
   }
@@ -206,10 +251,11 @@ export class AuthService {
       }
     })
 
-    res.cookie(SESSION_COOKIE_NAME, token, {
-      ...COOKIE_OPTIONS,
-      expires: session.expiresAt
-    })
+    res.cookie(
+      SESSION_COOKIE_NAME,
+      token,
+      cookieOpts({ expires: session.expiresAt })
+    )
 
     return session
   }
@@ -257,7 +303,10 @@ export class AuthService {
   }
 
   private async sendVerificationEmail(userId: string, email: string) {
-    const token = customAlphabet("1234567890", 6)()
+    const token = Math.floor(Math.random() * 1000000)
+      .toString()
+      .padStart(6, "0") // Generate a 6-digit token
+
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
     await this.prisma.emailVerificationToken.upsert({
       create: { token, userId, expiresAt },
