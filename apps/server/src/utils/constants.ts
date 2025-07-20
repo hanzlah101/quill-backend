@@ -5,4 +5,7 @@ export const STATIC_ASSETS = {
   logo: `${CLOUDFRONT_URL}/static/logo.png`
 }
 
-export const SESSION_COOKIE_NAME = "session_token"
+export const COOKIES = {
+  session: "session-token",
+  csrf: "x-csrf-token"
+} as const
