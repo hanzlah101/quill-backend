@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  InternalServerErrorException,
   Param,
   Patch,
   Post,
@@ -11,7 +12,13 @@ import {
   UseGuards
 } from "@nestjs/common"
 import { AuthService } from "./auth.service"
-import { ApiBody, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger"
+import {
+  ApiBody,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags
+} from "@nestjs/swagger"
 import { SignUpDTO } from "./dto/sign-up.dto"
 import { UserDTO } from "./dto/user.dto"
 import { LoginDTO } from "./dto/login.dto"
@@ -20,9 +27,10 @@ import { AuthGuard } from "@/guards/auth.guard"
 import { GuestGuard } from "@/guards/guest.guard"
 import { CheckEmailVerification } from "@/decorators/email-verification.decorator"
 import { Session, User } from "@/decorators/session.decorator"
-import { SESSION_COOKIE_NAME } from "@/utils/constants"
+import { COOKIES } from "@/utils/constants"
 import { VerifyEmailDTO } from "./dto/verify-email.dto"
 import { ChangePasswordDTO } from "./dto/change-password.dto"
+import { CSRFTokenDTO } from "./dto/csrf-token.dto"
 import {
   ResetPasswordDTO,
   ResetPasswordRequestDTO
@@ -33,6 +41,10 @@ import {
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @ApiOperation({
+    summary: "Sign up a new user",
+    description: "Creates a new user account and sends a verification email."
+  })
   @Post("sign-up")
   @UseGuards(GuestGuard)
   @HttpCode(201)
@@ -56,6 +68,10 @@ export class AuthController {
     return user
   }
 
+  @ApiOperation({
+    summary: "Verify email",
+    description: "Verifies the user's email using a verification code."
+  })
   @Post("verify")
   @UseGuards(AuthGuard)
   @CheckEmailVerification(false)
@@ -74,7 +90,11 @@ export class AuthController {
     await this.authService.verifyEmail(user, body.code)
   }
 
-  @Post("verify/resend")
+  @ApiOperation({
+    summary: "Resend verification email",
+    description: "Sends a new verification email to the user."
+  })
+  @Post("resend-verification")
   @UseGuards(AuthGuard)
   @CheckEmailVerification(false)
   @HttpCode(204)
@@ -88,6 +108,10 @@ export class AuthController {
     await this.authService.resendVerification(user)
   }
 
+  @ApiOperation({
+    summary: "Login user",
+    description: "Logs in a user and creates a session."
+  })
   @Post("login")
   @UseGuards(GuestGuard)
   @HttpCode(200)
@@ -111,7 +135,11 @@ export class AuthController {
     return user
   }
 
-  @Post("reset-pw")
+  @ApiOperation({
+    summary: "Request password reset",
+    description: "Sends a password reset email to the user."
+  })
+  @Post("reset-password")
   @UseGuards(GuestGuard)
   @HttpCode(204)
   @ApiBody({ type: ResetPasswordRequestDTO })
@@ -126,7 +154,11 @@ export class AuthController {
     await this.authService.requestPasswordReset(body.email)
   }
 
-  @Patch("reset-pw/:token")
+  @ApiOperation({
+    summary: "Reset password",
+    description: "Resets the user's password using a reset token."
+  })
+  @Patch("reset-password/:token")
   @UseGuards(GuestGuard)
   @HttpCode(204)
   @ApiBody({ type: ResetPasswordDTO })
@@ -149,7 +181,12 @@ export class AuthController {
     await this.authService.resetPassword(token, body.newPassword)
   }
 
-  @Patch("change-pw")
+  @ApiOperation({
+    summary: "Change password",
+    description:
+      "Changes the user's password after verifying the current password."
+  })
+  @Patch("change-password")
   @UseGuards(AuthGuard)
   @HttpCode(204)
   @ApiBody({ type: ChangePasswordDTO })
@@ -171,6 +208,10 @@ export class AuthController {
     await this.authService.createSession(user.id, req, res)
   }
 
+  @ApiOperation({
+    summary: "Logout user",
+    description: "Logs out the user and clears the session."
+  })
   @Post("logout")
   @HttpCode(204)
   @UseGuards(AuthGuard)
@@ -184,9 +225,31 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response
   ) {
     await this.authService.logout(session.id)
-    res.clearCookie(SESSION_COOKIE_NAME)
+    res.clearCookie(COOKIES.session)
+    res.clearCookie(COOKIES.csrf)
   }
 
+  @ApiOperation({
+    summary: "Get CSRF token",
+    description: "Returns the CSRF token for the current session."
+  })
+  @Get("csrf-token")
+  @HttpCode(200)
+  @ApiResponse({
+    status: 200,
+    description: "Returns the CSRF token",
+    type: CSRFTokenDTO
+  })
+  @ApiResponse({ status: 500, description: "Internal server error" })
+  getCsrfToken(@Req() req: Request) {
+    if (!req.csrfToken) throw new InternalServerErrorException()
+    return { csrfToken: req.csrfToken() }
+  }
+
+  @ApiOperation({
+    summary: "Get current user",
+    description: "Returns the currently authenticated user."
+  })
   @Get("me")
   @UseGuards(AuthGuard)
   @CheckEmailVerification(false)

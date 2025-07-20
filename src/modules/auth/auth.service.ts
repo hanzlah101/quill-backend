@@ -14,7 +14,7 @@ import { MailerService } from "@nestjs-modules/mailer"
 import { resetPasswordEmail, verificationEmail } from "@/utils/email-templates"
 import { UserDTO } from "./dto/user.dto"
 import { sha256 } from "@oslojs/crypto/sha2"
-import { SESSION_COOKIE_NAME } from "@/utils/constants"
+import { COOKIES } from "@/utils/constants"
 import { ChangePasswordDTO } from "./dto/change-password.dto"
 import { cookieOpts } from "@/utils/options"
 import type { Response, Request } from "express"
@@ -251,11 +251,7 @@ export class AuthService {
       }
     })
 
-    res.cookie(
-      SESSION_COOKIE_NAME,
-      token,
-      cookieOpts({ expires: session.expiresAt })
-    )
+    res.cookie(COOKIES.session, token, cookieOpts(session.expiresAt))
 
     return session
   }
@@ -269,15 +265,13 @@ export class AuthService {
       include: { user: { omit: { passwordHash: true } } }
     })
 
-    if (!session) {
-      return { user: null, session: null }
-    }
+    if (!session) return null
 
     if (session.expiresAt.getTime() < Date.now()) {
       await this.prisma.session.delete({
         where: { id: session.id }
       })
-      return { user: null, session: null }
+      return null
     }
 
     const fifteenDaysFromNow = Date.now() + 1000 * 60 * 60 * 24 * 15
@@ -290,7 +284,7 @@ export class AuthService {
       session.expiresAt = newExpiresAt
     }
 
-    return { user: session.user, session }
+    return session
   }
 
   private getClientIP(req: Request) {
@@ -303,9 +297,7 @@ export class AuthService {
   }
 
   private async sendVerificationEmail(userId: string, email: string) {
-    const token = Math.floor(Math.random() * 1000000)
-      .toString()
-      .padStart(6, "0") // Generate a 6-digit token
+    const token = this.generateRandomOTP()
 
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
     await this.prisma.emailVerificationToken.upsert({
@@ -319,6 +311,12 @@ export class AuthService {
       subject: "Quill Verification Code",
       ...verificationEmail(token)
     })
+  }
+
+  private generateRandomOTP() {
+    const array = new Uint32Array(1)
+    crypto.getRandomValues(array)
+    return (array[0] % 1000000).toString().padStart(6, "0")
   }
 
   private generateSessionToken() {
