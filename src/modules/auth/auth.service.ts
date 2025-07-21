@@ -2,14 +2,15 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  UnauthorizedException,
   UnprocessableEntityException
 } from "@nestjs/common"
+import { ERROR_CODES } from "@/utils/error-codes"
 import { hash, verify } from "@node-rs/argon2"
 import { SignUpDTO } from "./dto/sign-up.dto"
 import { PrismaService } from "@/modules/prisma/prisma.service"
 import { handleUniqueException } from "@/utils/helpers"
 import { LoginDTO } from "./dto/login.dto"
-import { EnvService } from "../env/env.service"
 import { MailerService } from "@nestjs-modules/mailer"
 import { resetPasswordEmail, verificationEmail } from "@/utils/email-templates"
 import { UserDTO } from "./dto/user.dto"
@@ -27,8 +28,7 @@ import {
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mailer: MailerService,
-    private readonly env: EnvService
+    private readonly mailer: MailerService
   ) {}
 
   async signUp({ name, email, password }: SignUpDTO) {
@@ -39,7 +39,7 @@ export class AuthService {
         data: { name, email, passwordHash },
         omit: { passwordHash: true }
       })
-      .catch(handleUniqueException("User already exists"))
+      .catch(handleUniqueException(ERROR_CODES.USER_ALREADY_EXISTS.message))
 
     await this.sendVerificationEmail(user.id, user.email)
 
@@ -48,7 +48,7 @@ export class AuthService {
 
   async verifyEmail(user: UserDTO, token: string) {
     if (user.emailVerified) {
-      throw new BadRequestException("Email already verified")
+      throw new BadRequestException(ERROR_CODES.EMAIL_ALREADY_VERIFIED.message)
     }
 
     const verificationToken =
@@ -57,14 +57,18 @@ export class AuthService {
       })
 
     if (!verificationToken) {
-      throw new BadRequestException("Invalid verification code")
+      throw new BadRequestException(
+        ERROR_CODES.INVALID_VERIFICATION_CODE.message
+      )
     }
 
     if (verificationToken.expiresAt.getTime() < new Date().getTime()) {
       await this.prisma.emailVerificationToken.delete({
         where: { userId_token: { userId: verificationToken.userId, token } }
       })
-      throw new BadRequestException("Verification code has expired")
+      throw new BadRequestException(
+        ERROR_CODES.INVALID_VERIFICATION_CODE.message
+      )
     }
 
     await this.prisma.user.update({
@@ -79,7 +83,7 @@ export class AuthService {
 
   async resendVerification(user: UserDTO) {
     if (user.emailVerified) {
-      throw new BadRequestException("Email already verified")
+      throw new BadRequestException(ERROR_CODES.EMAIL_ALREADY_VERIFIED.message)
     }
 
     await this.sendVerificationEmail(user.id, user.email)
@@ -92,14 +96,14 @@ export class AuthService {
 
     if (!user) {
       await hash(password, this.passwordOpts) // Prevent timing attacks
-      throw new BadRequestException("Invalid credentials")
+      throw new BadRequestException(ERROR_CODES.INVALID_CREDENTIALS.message)
     }
 
     const { passwordHash, ...userData } = user
 
     if (!passwordHash) {
       throw new BadRequestException(
-        "This account is linked to a social account"
+        ERROR_CODES.ACCOUNT_LINKED_TO_SOCIAL.message
       )
     }
 
@@ -110,7 +114,7 @@ export class AuthService {
     )
 
     if (!isPasswordValid) {
-      throw new BadRequestException("Invalid credentials")
+      throw new BadRequestException(ERROR_CODES.INVALID_CREDENTIALS.message)
     }
 
     if (!userData.emailVerified) {
@@ -126,7 +130,7 @@ export class AuthService {
     })
 
     if (!user) {
-      throw new BadRequestException("User not found")
+      throw new BadRequestException(ERROR_CODES.UNAUTHORIZED.message)
     }
 
     const token = this.generateSessionToken()
@@ -161,14 +165,14 @@ export class AuthService {
     })
 
     if (!resetSession) {
-      throw new BadRequestException("Invalid reset password token")
+      throw new BadRequestException(ERROR_CODES.INVALID_RESET_TOKEN.message)
     }
 
     if (resetSession.expiresAt.getTime() < Date.now()) {
       await this.prisma.passwordResetSession.delete({
         where: { id: resetSession.id }
       })
-      throw new BadRequestException("Session has expired")
+      throw new UnauthorizedException(ERROR_CODES.UNAUTHORIZED.message)
     }
 
     const passwordHash = await hash(newPassword, this.passwordOpts)
@@ -189,7 +193,7 @@ export class AuthService {
   ) {
     if (newPassword === currentPassword) {
       throw new UnprocessableEntityException(
-        "New password cannot be the same as current"
+        ERROR_CODES.SAME_NEW_PASSWORD.message
       )
     }
 
@@ -199,7 +203,7 @@ export class AuthService {
     })
 
     if (!user.passwordHash) {
-      throw new ConflictException("This account is linked to a social account")
+      throw new ConflictException(ERROR_CODES.ACCOUNT_LINKED_TO_SOCIAL.message)
     }
 
     const isCurrentPasswordValid = await verify(
@@ -209,7 +213,9 @@ export class AuthService {
     )
 
     if (!isCurrentPasswordValid) {
-      throw new BadRequestException("Current password is incorrect")
+      throw new BadRequestException(
+        ERROR_CODES.INCORRECT_CURRENT_PASSWORD.message
+      )
     }
 
     const newPasswordHash = await hash(newPassword, this.passwordOpts)
