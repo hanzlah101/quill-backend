@@ -8,6 +8,7 @@ import {
 import { Reflector } from "@nestjs/core"
 import { EMAIL_VERIFIED_KEY } from "@/decorators/email-verification.decorator"
 import { AuthenticatedRequest } from "@/types/express"
+import { ERROR_CODES } from "@/utils/error-codes"
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -16,7 +17,7 @@ export class AuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request: AuthenticatedRequest = context.switchToHttp().getRequest()
     if (!request.user || !request.session) {
-      throw new UnauthorizedException("Unauthorized")
+      throw new UnauthorizedException(ERROR_CODES.UNAUTHORIZED.message)
     }
 
     const checkEmailVerification = this.reflector.getAllAndOverride<boolean>(
@@ -28,6 +29,6 @@ export class AuthGuard implements CanActivate {
       return true
     }
 
-    throw new ForbiddenException("Email not verified")
+    throw new ForbiddenException(ERROR_CODES.EMAIL_NOT_VERIFIED.message)
   }
 }

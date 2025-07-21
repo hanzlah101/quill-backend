@@ -1,36 +1,23 @@
 import {
   Body,
   Controller,
-  Get,
-  HttpCode,
   InternalServerErrorException,
   Param,
-  Patch,
-  Post,
   Req,
-  Res,
-  UseGuards
+  Res
 } from "@nestjs/common"
 import { AuthService } from "./auth.service"
-import {
-  ApiBody,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags
-} from "@nestjs/swagger"
+import { ApiBody, ApiParam, ApiTags } from "@nestjs/swagger"
 import { SignUpDTO } from "./dto/sign-up.dto"
 import { UserDTO } from "./dto/user.dto"
 import { LoginDTO } from "./dto/login.dto"
 import { Request, Response } from "express"
-import { AuthGuard } from "@/guards/auth.guard"
-import { GuestGuard } from "@/guards/guest.guard"
-import { CheckEmailVerification } from "@/decorators/email-verification.decorator"
 import { Session, User } from "@/decorators/session.decorator"
 import { COOKIES } from "@/utils/constants"
 import { VerifyEmailDTO } from "./dto/verify-email.dto"
 import { ChangePasswordDTO } from "./dto/change-password.dto"
 import { CSRFTokenDTO } from "./dto/csrf-token.dto"
+import { ApiEndpoint } from "@/decorators/api-endpoint.decorator"
 import {
   ResetPasswordDTO,
   ResetPasswordRequestDTO
@@ -41,23 +28,18 @@ import {
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @ApiOperation({
+  @ApiEndpoint("Post", "sign-up", {
     summary: "Sign up a new user",
-    description: "Creates a new user account and sends a verification email."
+    description: "Creates a new user account and sends a verification email.",
+    guard: "GuestGuard",
+    errors: ["USER_ALREADY_EXISTS", "ALREADY_LOGGED_IN"],
+    validation: ApiBody({ type: SignUpDTO }),
+    response: {
+      status: 201,
+      description: "User successfully created",
+      type: UserDTO
+    }
   })
-  @Post("sign-up")
-  @UseGuards(GuestGuard)
-  @HttpCode(201)
-  @ApiBody({ type: SignUpDTO })
-  @ApiResponse({
-    status: 201,
-    description: "User successfully created",
-    type: UserDTO
-  })
-  @ApiResponse({ status: 422, description: "Validation failed" })
-  @ApiResponse({ status: 409, description: "User already exists" })
-  @ApiResponse({ status: 403, description: "Already logged in" })
-  @ApiResponse({ status: 500, description: "Internal server error" })
   async signUp(
     @Body() body: SignUpDTO,
     @Req() req: Request,
@@ -68,63 +50,49 @@ export class AuthController {
     return user
   }
 
-  @ApiOperation({
+  @ApiEndpoint("Post", "verify-email", {
     summary: "Verify email",
-    description: "Verifies the user's email using a verification code."
+    description: "Verifies the user's email using a verification code.",
+    guard: "AuthGuard",
+    checkEmailVerification: false,
+    validation: ApiBody({ type: VerifyEmailDTO }),
+    errors: ["INVALID_VERIFICATION_CODE", "EMAIL_ALREADY_VERIFIED"],
+    response: {
+      status: 204,
+      description: "Email verified successfully"
+    }
   })
-  @Post("verify")
-  @UseGuards(AuthGuard)
-  @CheckEmailVerification(false)
-  @HttpCode(204)
-  @ApiBody({ type: VerifyEmailDTO })
-  @ApiResponse({
-    status: 204,
-    description: "Email verified successfully"
-  })
-  @ApiResponse({
-    status: 400,
-    description: "Invalid or expired verification code"
-  })
-  @ApiResponse({ status: 401, description: "Unauthorized" })
   async verifyEmail(@User() user: UserDTO, @Body() body: VerifyEmailDTO) {
     await this.authService.verifyEmail(user, body.code)
   }
 
-  @ApiOperation({
+  @ApiEndpoint("Post", "resend-verification", {
     summary: "Resend verification email",
-    description: "Sends a new verification email to the user."
+    description: "Sends a new verification email to the user.",
+    guard: "AuthGuard",
+    checkEmailVerification: false,
+    errors: ["EMAIL_ALREADY_VERIFIED"],
+    response: {
+      status: 204,
+      description: "Verification email sent successfully"
+    }
   })
-  @Post("resend-verification")
-  @UseGuards(AuthGuard)
-  @CheckEmailVerification(false)
-  @HttpCode(204)
-  @ApiResponse({
-    status: 204,
-    description: "Verification email sent successfully"
-  })
-  @ApiResponse({ status: 400, description: "Email already verified" })
-  @ApiResponse({ status: 401, description: "Unauthorized" })
   async resendVerificationEmail(@User() user: UserDTO) {
     await this.authService.resendVerification(user)
   }
 
-  @ApiOperation({
+  @ApiEndpoint("Post", "login", {
     summary: "Login user",
-    description: "Logs in a user and creates a session."
+    description: "Logs in a user and creates a session.",
+    guard: "GuestGuard",
+    validation: ApiBody({ type: LoginDTO }),
+    errors: ["ALREADY_LOGGED_IN", "INVALID_CREDENTIALS"],
+    response: {
+      status: 200,
+      description: "User successfully logged in",
+      type: UserDTO
+    }
   })
-  @Post("login")
-  @UseGuards(GuestGuard)
-  @HttpCode(200)
-  @ApiBody({ type: LoginDTO })
-  @ApiResponse({
-    status: 200,
-    description: "User successfully logged in",
-    type: UserDTO
-  })
-  @ApiResponse({ status: 422, description: "Validation failed" })
-  @ApiResponse({ status: 403, description: "Already logged in" })
-  @ApiResponse({ status: 400, description: "Invalid credentials" })
-  @ApiResponse({ status: 500, description: "Internal server error" })
   async login(
     @Body() body: LoginDTO,
     @Req() req: Request,
@@ -135,45 +103,38 @@ export class AuthController {
     return user
   }
 
-  @ApiOperation({
+  @ApiEndpoint("Post", "reset-password", {
     summary: "Request password reset",
-    description: "Sends a password reset email to the user."
+    description: "Sends a password reset email to the user.",
+    guard: "GuestGuard",
+    validation: ApiBody({ type: ResetPasswordRequestDTO }),
+    response: {
+      status: 204,
+      description: "Password reset request successful"
+    }
   })
-  @Post("reset-password")
-  @UseGuards(GuestGuard)
-  @HttpCode(204)
-  @ApiBody({ type: ResetPasswordRequestDTO })
-  @ApiResponse({
-    status: 204,
-    description: "Password reset request successful"
-  })
-  @ApiResponse({ status: 422, description: "Validation failed" })
-  @ApiResponse({ status: 400, description: "Invalid email address" })
-  @ApiResponse({ status: 500, description: "Internal server error" })
   async requestPasswordReset(@Body() body: ResetPasswordRequestDTO) {
     await this.authService.requestPasswordReset(body.email)
   }
 
-  @ApiOperation({
+  @ApiEndpoint("Patch", "reset-password/:token", {
     summary: "Reset password",
-    description: "Resets the user's password using a reset token."
+    description: "Resets the user's password using a reset token.",
+    guard: "GuestGuard",
+    errors: ["INVALID_RESET_TOKEN"],
+    validation: [
+      ApiBody({ type: ResetPasswordDTO }),
+      ApiParam({
+        name: "token",
+        description: "The password reset token",
+        example: "abc123xyz456"
+      })
+    ],
+    response: {
+      status: 204,
+      description: "Password reset successful"
+    }
   })
-  @Patch("reset-password/:token")
-  @UseGuards(GuestGuard)
-  @HttpCode(204)
-  @ApiBody({ type: ResetPasswordDTO })
-  @ApiParam({
-    name: "token",
-    description: "The password reset token",
-    example: "abc123xyz456"
-  })
-  @ApiResponse({
-    status: 204,
-    description: "Password reset successful"
-  })
-  @ApiResponse({ status: 422, description: "Validation failed" })
-  @ApiResponse({ status: 400, description: "Invalid reset token" })
-  @ApiResponse({ status: 500, description: "Internal server error" })
   async resetPassword(
     @Param("token") token: string,
     @Body() body: ResetPasswordDTO
@@ -181,23 +142,22 @@ export class AuthController {
     await this.authService.resetPassword(token, body.newPassword)
   }
 
-  @ApiOperation({
+  @ApiEndpoint("Patch", "change-password", {
     summary: "Change password",
     description:
-      "Changes the user's password after verifying the current password."
+      "Changes the user's password after verifying the current password.",
+    guard: "AuthGuard",
+    validation: ApiBody({ type: ChangePasswordDTO }),
+    errors: [
+      "VALIDATION_FAILED",
+      "ACCOUNT_LINKED_TO_SOCIAL",
+      "INCORRECT_CURRENT_PASSWORD"
+    ],
+    response: {
+      status: 204,
+      description: "Password changed successfully"
+    }
   })
-  @Patch("change-password")
-  @UseGuards(AuthGuard)
-  @HttpCode(204)
-  @ApiBody({ type: ChangePasswordDTO })
-  @ApiResponse({
-    status: 204,
-    description: "Password changed successfully"
-  })
-  @ApiResponse({ status: 422, description: "Validation failed" })
-  @ApiResponse({ status: 409, description: "Linked to a social account" })
-  @ApiResponse({ status: 400, description: "Current password is incorrect" })
-  @ApiResponse({ status: 500, description: "Internal server error" })
   async changePassword(
     @User() user: Express.User,
     @Body() body: ChangePasswordDTO,
@@ -208,18 +168,15 @@ export class AuthController {
     await this.authService.createSession(user.id, req, res)
   }
 
-  @ApiOperation({
+  @ApiEndpoint("Delete", "logout", {
     summary: "Logout user",
-    description: "Logs out the user and clears the session."
+    description: "Logs out the user and clears the session.",
+    guard: "AuthGuard",
+    response: {
+      status: 204,
+      description: "User successfully logged out"
+    }
   })
-  @Post("logout")
-  @HttpCode(204)
-  @UseGuards(AuthGuard)
-  @ApiResponse({
-    status: 204,
-    description: "User successfully logged out"
-  })
-  @ApiResponse({ status: 401, description: "Unauthorized" })
   async logout(
     @Session() session: Express.Session,
     @Res({ passthrough: true }) res: Response
@@ -229,36 +186,31 @@ export class AuthController {
     res.clearCookie(COOKIES.csrf)
   }
 
-  @ApiOperation({
+  @ApiEndpoint("Get", "csrf-token", {
     summary: "Get CSRF token",
-    description: "Returns the CSRF token for the current session."
+    description: "Returns the CSRF token for the current session.",
+    response: {
+      status: 200,
+      description: "Returns the CSRF token",
+      type: CSRFTokenDTO
+    }
   })
-  @Get("csrf-token")
-  @HttpCode(200)
-  @ApiResponse({
-    status: 200,
-    description: "Returns the CSRF token",
-    type: CSRFTokenDTO
-  })
-  @ApiResponse({ status: 500, description: "Internal server error" })
   getCsrfToken(@Req() req: Request) {
     if (!req.csrfToken) throw new InternalServerErrorException()
     return { csrfToken: req.csrfToken() }
   }
 
-  @ApiOperation({
+  @ApiEndpoint("Get", "me", {
     summary: "Get current user",
-    description: "Returns the currently authenticated user."
+    description: "Returns the currently authenticated user.",
+    guard: "AuthGuard",
+    checkEmailVerification: false,
+    response: {
+      status: 200,
+      description: "Returns the current user",
+      type: UserDTO
+    }
   })
-  @Get("me")
-  @UseGuards(AuthGuard)
-  @CheckEmailVerification(false)
-  @ApiResponse({
-    status: 200,
-    description: "Returns the current user",
-    type: UserDTO
-  })
-  @ApiResponse({ status: 401, description: "Unauthorized" })
   me(@User() user: Express.User) {
     return user
   }
