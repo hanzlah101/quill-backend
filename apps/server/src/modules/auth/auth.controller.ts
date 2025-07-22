@@ -3,11 +3,13 @@ import {
   Controller,
   InternalServerErrorException,
   Param,
+  Query,
   Req,
-  Res
+  Res,
+  UseFilters
 } from "@nestjs/common"
 import { AuthService } from "./auth.service"
-import { ApiBody, ApiParam, ApiTags } from "@nestjs/swagger"
+import { ApiTags } from "@nestjs/swagger"
 import { SignUpDTO } from "./dto/sign-up.dto"
 import { UserDTO } from "./dto/user.dto"
 import { LoginDTO } from "./dto/login.dto"
@@ -18,10 +20,16 @@ import { VerifyEmailDTO } from "./dto/verify-email.dto"
 import { ChangePasswordDTO } from "./dto/change-password.dto"
 import { CSRFTokenDTO } from "./dto/csrf-token.dto"
 import { ApiEndpoint } from "@/decorators/api-endpoint.decorator"
+import { OAuthExceptionFilter } from "@/filters/oauth-exception-filter"
 import {
   ResetPasswordDTO,
   ResetPasswordRequestDTO
 } from "./dto/reset-password.dto"
+import {
+  GithubCallbackDTO,
+  GithubLoginDTO,
+  GithubLoginResDTO
+} from "./dto/github-login.dto"
 
 @ApiTags("Auth")
 @Controller("auth")
@@ -32,8 +40,12 @@ export class AuthController {
     summary: "Sign up a new user",
     description: "Creates a new user account and sends a verification email.",
     guard: "GuestGuard",
-    errors: ["USER_ALREADY_EXISTS", "ALREADY_LOGGED_IN"],
-    validation: ApiBody({ type: SignUpDTO }),
+    errors: [
+      "USER_ALREADY_EXISTS",
+      "ALREADY_LOGGED_IN",
+      "VALIDATION_FAILED",
+      "EMAIL_SEND_FAILED"
+    ],
     response: {
       status: 201,
       description: "User successfully created",
@@ -55,8 +67,11 @@ export class AuthController {
     description: "Verifies the user's email using a verification code.",
     guard: "AuthGuard",
     checkEmailVerification: false,
-    validation: ApiBody({ type: VerifyEmailDTO }),
-    errors: ["INVALID_VERIFICATION_CODE", "EMAIL_ALREADY_VERIFIED"],
+    errors: [
+      "INVALID_VERIFICATION_CODE",
+      "EMAIL_ALREADY_VERIFIED",
+      "VALIDATION_FAILED"
+    ],
     response: {
       status: 204,
       description: "Email verified successfully"
@@ -71,7 +86,7 @@ export class AuthController {
     description: "Sends a new verification email to the user.",
     guard: "AuthGuard",
     checkEmailVerification: false,
-    errors: ["EMAIL_ALREADY_VERIFIED"],
+    errors: ["EMAIL_ALREADY_VERIFIED", "EMAIL_SEND_FAILED"],
     response: {
       status: 204,
       description: "Verification email sent successfully"
@@ -85,8 +100,13 @@ export class AuthController {
     summary: "Login user",
     description: "Logs in a user and creates a session.",
     guard: "GuestGuard",
-    validation: ApiBody({ type: LoginDTO }),
-    errors: ["ALREADY_LOGGED_IN", "INVALID_CREDENTIALS"],
+    errors: [
+      "ALREADY_LOGGED_IN",
+      "INVALID_CREDENTIALS",
+      "ACCOUNT_LINKED_TO_SOCIAL",
+      "VALIDATION_FAILED",
+      "EMAIL_SEND_FAILED"
+    ],
     response: {
       status: 200,
       description: "User successfully logged in",
@@ -107,7 +127,7 @@ export class AuthController {
     summary: "Request password reset",
     description: "Sends a password reset email to the user.",
     guard: "GuestGuard",
-    validation: ApiBody({ type: ResetPasswordRequestDTO }),
+    errors: ["EMAIL_NOT_FOUND", "VALIDATION_FAILED", "EMAIL_SEND_FAILED"],
     response: {
       status: 204,
       description: "Password reset request successful"
@@ -121,15 +141,7 @@ export class AuthController {
     summary: "Reset password",
     description: "Resets the user's password using a reset token.",
     guard: "GuestGuard",
-    errors: ["INVALID_RESET_TOKEN"],
-    validation: [
-      ApiBody({ type: ResetPasswordDTO }),
-      ApiParam({
-        name: "token",
-        description: "The password reset token",
-        example: "abc123xyz456"
-      })
-    ],
+    errors: ["INVALID_RESET_TOKEN", "VALIDATION_FAILED"],
     response: {
       status: 204,
       description: "Password reset successful"
@@ -147,11 +159,10 @@ export class AuthController {
     description:
       "Changes the user's password after verifying the current password.",
     guard: "AuthGuard",
-    validation: ApiBody({ type: ChangePasswordDTO }),
     errors: [
-      "VALIDATION_FAILED",
       "ACCOUNT_LINKED_TO_SOCIAL",
-      "INCORRECT_CURRENT_PASSWORD"
+      "INCORRECT_CURRENT_PASSWORD",
+      "VALIDATION_FAILED"
     ],
     response: {
       status: 204,
@@ -168,10 +179,48 @@ export class AuthController {
     await this.authService.createSession(user.id, req, res)
   }
 
+  @ApiEndpoint("Get", "github", {
+    summary: "GitHub login",
+    description: "Redirects to GitHub for OAuth login.",
+    guard: "GuestGuard",
+    errors: ["VALIDATION_FAILED"],
+    response: {
+      status: 200,
+      description: "GitHub OAuth URL",
+      type: GithubLoginResDTO
+    }
+  })
+  githubLogin(
+    @Res({ passthrough: true }) res: Response,
+    @Query() query: GithubLoginDTO
+  ) {
+    return this.authService.githubLogin(res, query)
+  }
+
+  @UseFilters(OAuthExceptionFilter.provider("github"))
+  @ApiEndpoint("Get", "github/callback", {
+    summary: "GitHub OAuth callback",
+    description: "Handles the GitHub OAuth callback and logs in the user.",
+    guard: "GuestGuard",
+    customErrorsOnly: true,
+    response: {
+      status: 302,
+      description: "Redirects to the application after login"
+    }
+  })
+  async githubCallback(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query() query: GithubCallbackDTO
+  ) {
+    return this.authService.githubCallback(req, res, query)
+  }
+
   @ApiEndpoint("Delete", "logout", {
     summary: "Logout user",
     description: "Logs out the user and clears the session.",
     guard: "AuthGuard",
+    checkEmailVerification: false,
     response: {
       status: 204,
       description: "User successfully logged out"
