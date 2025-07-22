@@ -7,5 +7,7 @@ export const STATIC_ASSETS = {
 
 export const COOKIES = {
   session: "session-token",
-  csrf: "x-csrf-token"
+  csrf: "x-csrf-token",
+  githubState: "github-oauth-state",
+  redirectUrl: "redirect-url"
 } as const

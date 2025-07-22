@@ -12,6 +12,7 @@ model User {
   email         String   @unique @db.VarChar(320)
   name          String   @db.VarChar(255)
   passwordHash  String?
+  image         String?
   emailVerified Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -19,6 +20,7 @@ model User {
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetSession[]
+  oAuthAccounts           OAuthAccount[]
 
   @@index([email])
   @@map("users")
@@ -47,7 +49,6 @@ model EmailVerificationToken {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, token])
-  @@index([token])
   @@index([userId])
   @@map("email_verification_tokens")
 }
@@ -59,5 +60,24 @@ model PasswordResetSession {
   userId String @unique @db.VarChar(36)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("password_reset_sessions")
+}
+
+model OAuthAccount {
+  provider     String    @db.VarChar(255)
+  providerId   String    @db.VarChar(255)
+  accessToken  String
+  refreshToken String?
+  scope        String?
+  tokenType    String?
+  expiresAt    DateTime?
+
+  userId String @unique @db.VarChar(36)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerId])
+  @@unique([userId, provider])
+  @@index([userId, provider])
+  @@map("oauth_accounts")
 }

@@ -6,6 +6,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(8080),
   DATABASE_URL: z.url(),
   CLIENT_URL: z.url(),
+  SERVER_URL: z.url(),
   EMAIL_HOST: z.string().min(1),
   EMAIL_FROM: z.string().min(1),
   EMAIL_PASSWORD: z.string().min(1),
@@ -14,7 +15,9 @@ const envSchema = z.object({
   AWS_S3_SECRET_ACCESS_KEY: z.string().min(1),
   AWS_S3_REGION: z.string().min(1),
   AWS_CLOUDFRONT_DISTRIBUTION_URL: z.url(),
-  CSRF_SECRET: z.string().min(1)
+  CSRF_SECRET: z.string().min(1),
+  GITHUB_CLIENT_ID: z.string().min(1),
+  GITHUB_CLIENT_SECRET: z.string().min(1)
 })
 
 export function validateEnv(env: unknown) {

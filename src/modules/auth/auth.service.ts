@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  BadGatewayException,
   UnauthorizedException,
   UnprocessableEntityException
 } from "@nestjs/common"
@@ -18,7 +19,10 @@ import { sha256 } from "@oslojs/crypto/sha2"
 import { COOKIES } from "@/utils/constants"
 import { ChangePasswordDTO } from "./dto/change-password.dto"
 import { cookieOpts } from "@/utils/options"
+import { EnvService } from "../env/env.service"
+import { generateState, GitHub } from "arctic"
 import type { Response, Request } from "express"
+import { GithubCallbackDTO, GithubLoginDTO } from "./dto/github-login.dto"
 import {
   encodeBase32LowerCaseNoPadding,
   encodeHexLowerCase
@@ -26,10 +30,19 @@ import {
 
 @Injectable()
 export class AuthService {
+  private github: GitHub
+
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mailer: MailerService
-  ) {}
+    private readonly mailer: MailerService,
+    private readonly env: EnvService
+  ) {
+    this.github = new GitHub(
+      this.env.get("GITHUB_CLIENT_ID"),
+      this.env.get("GITHUB_CLIENT_SECRET"),
+      this.env.get("SERVER_URL") + "/api/auth/github/callback"
+    )
+  }
 
   async signUp({ name, email, password }: SignUpDTO) {
     const passwordHash = await hash(password, this.passwordOpts)
@@ -130,7 +143,7 @@ export class AuthService {
     })
 
     if (!user) {
-      throw new BadRequestException(ERROR_CODES.UNAUTHORIZED.message)
+      throw new BadRequestException(ERROR_CODES.EMAIL_NOT_FOUND.message)
     }
 
     const token = this.generateSessionToken()
@@ -150,11 +163,15 @@ export class AuthService {
       where: { userId: user.id }
     })
 
-    await this.mailer.sendMail({
-      to: email,
-      subject: "Quill Password Reset Request",
-      ...resetPasswordEmail(token)
-    })
+    await this.mailer
+      .sendMail({
+        to: email,
+        subject: "Quill Password Reset Request",
+        ...resetPasswordEmail(token)
+      })
+      .catch(() => {
+        throw new BadGatewayException(ERROR_CODES.EMAIL_SEND_FAILED.message)
+      })
   }
 
   async resetPassword(token: string, newPassword: string) {
@@ -172,7 +189,7 @@ export class AuthService {
       await this.prisma.passwordResetSession.delete({
         where: { id: resetSession.id }
       })
-      throw new UnauthorizedException(ERROR_CODES.UNAUTHORIZED.message)
+      throw new UnauthorizedException(ERROR_CODES.INVALID_RESET_TOKEN.message)
     }
 
     const passwordHash = await hash(newPassword, this.passwordOpts)
@@ -228,6 +245,106 @@ export class AuthService {
     await this.prisma.session.deleteMany({
       where: { userId }
     })
+  }
+
+  githubLogin(res: Response, { redirect_url }: GithubLoginDTO) {
+    const state = generateState()
+    const url = this.github.createAuthorizationURL(state, [
+      "read:user",
+      "user:email"
+    ])
+    const expires = new Date(Date.now() + 20 * 60 * 1000) // 20 minutes
+    res.cookie(COOKIES.redirectUrl, redirect_url, cookieOpts(expires))
+    res.cookie(COOKIES.githubState, state, cookieOpts(expires))
+    return { url: url.toString() }
+  }
+
+  async githubCallback(
+    req: Request,
+    res: Response,
+    { state, code }: GithubCallbackDTO
+  ) {
+    const cookieState = req.cookies[COOKIES.githubState]
+    if (!cookieState || cookieState !== state) {
+      throw new BadRequestException()
+    }
+
+    const tokens = await this.github.validateAuthorizationCode(code)
+    const { access_token, scope, token_type } = tokens.data as {
+      access_token: string
+      scope: string
+      token_type: string
+    }
+    const githubUserResponse = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${access_token}`
+      }
+    })
+
+    if (!githubUserResponse.ok) {
+      throw new BadRequestException()
+    }
+
+    const githubUser = (await githubUserResponse.json()) as {
+      id: number
+      login: string
+      email: string | null
+      name: string | null
+      avatar_url: string
+    }
+
+    if (!githubUser.email) {
+      const emailsResponse = await fetch("https://api.github.com/user/emails", {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      })
+
+      if (!emailsResponse.ok) {
+        throw new BadRequestException()
+      }
+
+      const emails = (await emailsResponse.json()) as {
+        email: string
+        primary: boolean
+        verified: boolean
+      }[]
+
+      githubUser.email =
+        emails.find((e) => e.primary)?.email ?? emails[0]?.email ?? null
+    }
+
+    if (!githubUser.email) {
+      throw new BadRequestException()
+    }
+
+    const user = await this.createOAuthAccount({
+      providerId: String(githubUser.id),
+      name: githubUser.name ?? githubUser.login,
+      email: githubUser.email,
+      provider: "github",
+      image: githubUser.avatar_url,
+      accessToken: access_token,
+      scope: scope,
+      tokenType: token_type
+    })
+
+    await this.createSession(user.id, req, res)
+
+    const clientUrl = this.env.get("CLIENT_URL")
+    const redirectUrl = new URL(
+      req.cookies[COOKIES.redirectUrl] ?? "",
+      clientUrl
+    )
+
+    if (user.isNew) {
+      redirectUrl.searchParams.set("new_user", "true")
+    }
+
+    res
+      .clearCookie(COOKIES.githubState)
+      .clearCookie(COOKIES.redirectUrl)
+      .redirect(redirectUrl.toString())
   }
 
   async logout(sessionId: string) {
@@ -293,6 +410,61 @@ export class AuthService {
     return session
   }
 
+  private async createOAuthAccount({
+    name,
+    email,
+    image,
+    provider,
+    ...oauthParams
+  }: {
+    providerId: string
+    name: string
+    email: string
+    provider: "github" | "google"
+    image: string | null
+    accessToken: string
+    scope: string
+    tokenType: string
+  }) {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email }
+    })
+
+    if (existingUser) {
+      const existingOAuthAccount = await this.prisma.oAuthAccount.findUnique({
+        where: {
+          userId_provider: { userId: existingUser.id, provider }
+        }
+      })
+
+      if (!existingOAuthAccount) {
+        await this.prisma.oAuthAccount.create({
+          data: {
+            provider,
+            userId: existingUser.id,
+            ...oauthParams
+          }
+        })
+      }
+
+      return { ...existingUser, isNew: false }
+    } else {
+      const newUser = await this.prisma.user.create({
+        data: { email, name, image }
+      })
+
+      await this.prisma.oAuthAccount.create({
+        data: {
+          provider,
+          userId: newUser.id,
+          ...oauthParams
+        }
+      })
+
+      return { ...newUser, isNew: true }
+    }
+  }
+
   private getClientIP(req: Request) {
     const xForwardedFor = req.headers["x-forwarded-for"]
     if (typeof xForwardedFor === "string") {
@@ -303,20 +475,24 @@ export class AuthService {
   }
 
   private async sendVerificationEmail(userId: string, email: string) {
-    const token = this.generateRandomOTP()
+    try {
+      const token = this.generateRandomOTP()
 
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
-    await this.prisma.emailVerificationToken.upsert({
-      create: { token, userId, expiresAt },
-      update: { token, expiresAt },
-      where: { userId }
-    })
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+      await this.prisma.emailVerificationToken.upsert({
+        create: { token, userId, expiresAt },
+        update: { token, expiresAt },
+        where: { userId }
+      })
 
-    await this.mailer.sendMail({
-      to: email,
-      subject: "Quill Verification Code",
-      ...verificationEmail(token)
-    })
+      await this.mailer.sendMail({
+        to: email,
+        subject: "Quill Verification Code",
+        ...verificationEmail(token)
+      })
+    } catch {
+      throw new BadGatewayException(ERROR_CODES.EMAIL_SEND_FAILED.message)
+    }
   }
 
   private generateRandomOTP() {
