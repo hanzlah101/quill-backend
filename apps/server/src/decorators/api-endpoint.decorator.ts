@@ -1,3 +1,4 @@
+import { STATUS_CODES } from "node:http"
 import { AuthGuard } from "@/guards/auth.guard"
 import { GuestGuard } from "@/guards/guest.guard"
 import { ERROR_CODES, ErrorCode } from "@/utils/error-codes"
@@ -29,7 +30,7 @@ type ApiEndpointConfig = {
   description: string
   response: ApiResponseMetadata & { status: number }
   errors?: ErrorCode[]
-  validation?: MethodDecorator | MethodDecorator[]
+  customErrorsOnly?: boolean
 } & (
   | {
       guard?: "GuestGuard"
@@ -63,48 +64,46 @@ export function ApiEndpoint(
     )
   }
 
-  const errors = new Set<ErrorCode>(["INTERNAL_SERVER_ERROR"])
+  const errors = new Set<ErrorCode>(
+    config.customErrorsOnly ? [] : ["INTERNAL_SERVER_ERROR"]
+  )
 
   if (config.errors?.length) {
     config.errors.forEach((e) => errors.add(e))
   }
 
-  if (config.validation) {
-    errors.add("VALIDATION_FAILED")
-    if (Array.isArray(config.validation)) {
-      decorators.push(...config.validation)
-    } else {
-      decorators.push(config.validation)
-    }
-  }
-
   if (config.guard) {
     const guard = Guards[config.guard]
     decorators.push(UseGuards(guard))
-    errors.add(
-      config.guard === "AuthGuard" ? "UNAUTHORIZED" : "ALREADY_LOGGED_IN"
-    )
+    if (!config.customErrorsOnly) {
+      errors.add(
+        config.guard === "AuthGuard" ? "UNAUTHORIZED" : "ALREADY_LOGGED_IN"
+      )
+    }
 
     if (config.guard === "AuthGuard") {
       decorators.push(
         CheckEmailVerification(config.checkEmailVerification ?? true)
       )
-      errors.add("EMAIL_NOT_VERIFIED")
+      if (!config.checkEmailVerification) {
+        errors.add("EMAIL_NOT_VERIFIED")
+      }
     }
   }
 
   decorators.push(
     ...[...errors].map((status) => {
       const error = ERROR_CODES[status]
+      const httpError = STATUS_CODES[error.status]
       return ApiResponse({
         status: error.status,
         description: error.message,
         schema: {
           type: "object",
           properties: {
-            statusCode: { type: "number", example: error.status },
-            error: { type: "string", example: error.error },
-            message: { type: "string", example: error.message }
+            message: { type: "string", example: error.message },
+            error: { type: "string", example: httpError },
+            statusCode: { type: "number", example: error.status }
           }
         }
       })

@@ -7,13 +7,16 @@ import {
   ValidationPipeOptions
 } from "@nestjs/common"
 
-export function cookieOpts(expires: Date): CookieOptions {
+export function cookieOpts(expiresAt: Date | number): CookieOptions {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    expires
+    expires:
+      typeof expiresAt === "number"
+        ? new Date(Date.now() + expiresAt)
+        : expiresAt
   }
 }
 
@@ -50,6 +53,6 @@ export function csrfOpts(secret: string): DoubleCsrfConfigOptions {
     skipCsrfProtection: (req) => !req.session,
     getSessionIdentifier: (req) => req.session?.id as string,
     getCsrfTokenFromRequest: (req) => req.headers[COOKIES.csrf],
-    cookieOptions: cookieOpts(new Date(Date.now() + 60 * 60 * 1000)) // 1 hour
+    cookieOptions: cookieOpts(60 * 60 * 1000) // 1 hour
   }
 }
