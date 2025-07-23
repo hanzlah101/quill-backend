@@ -19,9 +19,14 @@ export class OAuthExceptionFilter implements ExceptionFilter {
     return this
   }
 
-  catch(_: unknown, host: ArgumentsHost) {
+  catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp()
     const res = ctx.getResponse<Response>()
+    console.error(
+      `OAuth error from ${OAuthExceptionFilter._provider}:`,
+      exception
+    )
+
     res
       .status(302)
       .redirect(

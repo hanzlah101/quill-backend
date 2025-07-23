@@ -3,7 +3,7 @@ import { AuthGuard } from "@/guards/auth.guard"
 import { GuestGuard } from "@/guards/guest.guard"
 import { ERROR_CODES, ErrorCode } from "@/utils/error-codes"
 import { CheckEmailVerification } from "./email-verification.decorator"
-import { COOKIES } from "@/utils/constants"
+import { CSRF_HEADER } from "@/utils/constants"
 import {
   applyDecorators,
   Delete,
@@ -56,7 +56,7 @@ export function ApiEndpoint(
   if (method !== "Get") {
     decorators.push(
       ApiHeader({
-        name: COOKIES.csrf,
+        name: CSRF_HEADER,
         description: "CSRF token for state-changing operations",
         required: true,
         schema: { type: "string" }

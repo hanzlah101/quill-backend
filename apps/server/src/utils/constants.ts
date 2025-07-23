@@ -6,8 +6,12 @@ export const STATIC_ASSETS = {
 }
 
 export const COOKIES = {
-  session: "session-token",
-  csrf: "x-csrf-token",
-  githubState: "github-oauth-state",
-  redirectUrl: "redirect-url"
+  session: "session_token",
+  csrf: "x_csrf_token",
+  githubState: "github_oauth_state",
+  redirectUrl: "redirect_url",
+  googleState: "google_oauth_state",
+  googleCodeVerifier: "google_oauth_code_verifier"
 } as const
+
+export const CSRF_HEADER = "x-csrf-token"

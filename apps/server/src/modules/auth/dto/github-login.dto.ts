@@ -30,8 +30,8 @@ export class GithubCallbackDTO {
   code: string
 
   @ApiProperty({
-    description: "The state parameter to prevent CSRF attacks",
-    example: "random_state_string"
+    description: "The state parameter to verify the callback",
+    example: "state123"
   })
   @IsString()
   @IsNotEmpty()

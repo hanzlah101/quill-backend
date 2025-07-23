@@ -65,15 +65,17 @@ model PasswordResetSession {
 }
 
 model OAuthAccount {
-  provider     String    @db.VarChar(255)
-  providerId   String    @db.VarChar(255)
-  accessToken  String
-  refreshToken String?
-  scope        String?
-  tokenType    String?
-  expiresAt    DateTime?
+  provider             String    @db.VarChar(255)
+  providerId           String    @db.VarChar(255)
+  accessToken          String
+  refreshToken         String?
+  scope                String?
+  idToken              String?
+  accessTokenExpiresAt DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  userId String @unique @db.VarChar(36)
+  userId String @db.VarChar(36)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([provider, providerId])
