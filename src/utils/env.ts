@@ -17,7 +17,9 @@ const envSchema = z.object({
   AWS_CLOUDFRONT_DISTRIBUTION_URL: z.url(),
   CSRF_SECRET: z.string().min(1),
   GITHUB_CLIENT_ID: z.string().min(1),
-  GITHUB_CLIENT_SECRET: z.string().min(1)
+  GITHUB_CLIENT_SECRET: z.string().min(1),
+  GOOGLE_CLIENT_ID: z.string().min(1),
+  GOOGLE_CLIENT_SECRET: z.string().min(1)
 })
 
 export function validateEnv(env: unknown) {

@@ -1,7 +1,7 @@
 import { CookieOptions } from "express"
 import { DoubleCsrfConfigOptions } from "csrf-csrf"
 import { CorsOptions } from "@nestjs/common/interfaces/external/cors-options.interface"
-import { COOKIES } from "./constants"
+import { COOKIES, CSRF_HEADER } from "./constants"
 import {
   UnprocessableEntityException,
   ValidationPipeOptions
@@ -52,7 +52,7 @@ export function csrfOpts(secret: string): DoubleCsrfConfigOptions {
     getSecret: () => secret,
     skipCsrfProtection: (req) => !req.session,
     getSessionIdentifier: (req) => req.session?.id as string,
-    getCsrfTokenFromRequest: (req) => req.headers[COOKIES.csrf],
+    getCsrfTokenFromRequest: (req) => req.headers[CSRF_HEADER],
     cookieOptions: cookieOpts(60 * 60 * 1000) // 1 hour
   }
 }

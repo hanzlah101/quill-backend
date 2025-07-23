@@ -30,6 +30,11 @@ import {
   GithubLoginDTO,
   GithubLoginResDTO
 } from "./dto/github-login.dto"
+import {
+  GoogleCallbackDTO,
+  GoogleLoginDTO,
+  GoogleLoginResDTO
+} from "./dto/google-login.dto"
 
 @ApiTags("Auth")
 @Controller("auth")
@@ -181,7 +186,7 @@ export class AuthController {
 
   @ApiEndpoint("Get", "github", {
     summary: "GitHub login",
-    description: "Redirects to GitHub for OAuth login.",
+    description: "Returns the GitHub OAuth URL for login.",
     guard: "GuestGuard",
     errors: ["VALIDATION_FAILED"],
     response: {
@@ -214,6 +219,43 @@ export class AuthController {
     @Query() query: GithubCallbackDTO
   ) {
     return this.authService.githubCallback(req, res, query)
+  }
+
+  @ApiEndpoint("Get", "google", {
+    summary: "Google login",
+    description: "Returns the Google OAuth URL for login.",
+    guard: "GuestGuard",
+    errors: ["VALIDATION_FAILED"],
+    response: {
+      status: 200,
+      description: "Google OAuth URL",
+      type: GoogleLoginResDTO
+    }
+  })
+  googleLogin(
+    @Res({ passthrough: true }) res: Response,
+    @Query() query: GoogleLoginDTO
+  ) {
+    return this.authService.googleLogin(res, query)
+  }
+
+  @UseFilters(OAuthExceptionFilter.provider("google"))
+  @ApiEndpoint("Get", "google/callback", {
+    summary: "Google OAuth callback",
+    description: "Handles the Google OAuth callback and logs in the user.",
+    guard: "GuestGuard",
+    customErrorsOnly: true,
+    response: {
+      status: 302,
+      description: "Redirects to the application after login"
+    }
+  })
+  async googleCallback(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query() query: GoogleCallbackDTO
+  ) {
+    return this.authService.googleCallback(req, res, query)
   }
 
   @ApiEndpoint("Delete", "logout", {

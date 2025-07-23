@@ -3,7 +3,6 @@ import {
   ConflictException,
   Injectable,
   BadGatewayException,
-  UnauthorizedException,
   UnprocessableEntityException
 } from "@nestjs/common"
 import { ERROR_CODES } from "@/utils/error-codes"
@@ -20,17 +19,25 @@ import { COOKIES } from "@/utils/constants"
 import { ChangePasswordDTO } from "./dto/change-password.dto"
 import { cookieOpts } from "@/utils/options"
 import { EnvService } from "../env/env.service"
-import { generateState, GitHub } from "arctic"
+import {
+  decodeIdToken,
+  generateCodeVerifier,
+  generateState,
+  GitHub,
+  Google
+} from "arctic"
 import type { Response, Request } from "express"
 import { GithubCallbackDTO, GithubLoginDTO } from "./dto/github-login.dto"
 import {
   encodeBase32LowerCaseNoPadding,
   encodeHexLowerCase
 } from "@oslojs/encoding"
+import { GoogleCallbackDTO, GoogleLoginDTO } from "./dto/google-login.dto"
 
 @Injectable()
 export class AuthService {
   private github: GitHub
+  private google: Google
 
   constructor(
     private readonly prisma: PrismaService,
@@ -41,6 +48,12 @@ export class AuthService {
       this.env.get("GITHUB_CLIENT_ID"),
       this.env.get("GITHUB_CLIENT_SECRET"),
       this.env.get("SERVER_URL") + "/api/auth/github/callback"
+    )
+
+    this.google = new Google(
+      this.env.get("GOOGLE_CLIENT_ID"),
+      this.env.get("GOOGLE_CLIENT_SECRET"),
+      this.env.get("SERVER_URL") + "/api/auth/google/callback"
     )
   }
 
@@ -189,7 +202,7 @@ export class AuthService {
       await this.prisma.passwordResetSession.delete({
         where: { id: resetSession.id }
       })
-      throw new UnauthorizedException(ERROR_CODES.INVALID_RESET_TOKEN.message)
+      throw new BadRequestException(ERROR_CODES.INVALID_RESET_TOKEN.message)
     }
 
     const passwordHash = await hash(newPassword, this.passwordOpts)
@@ -264,16 +277,15 @@ export class AuthService {
     res: Response,
     { state, code }: GithubCallbackDTO
   ) {
-    const cookieState = req.cookies[COOKIES.githubState]
-    if (!cookieState || cookieState !== state) {
+    const storedState = req.cookies[COOKIES.githubState]
+    if (!storedState || storedState !== state) {
       throw new BadRequestException()
     }
 
     const tokens = await this.github.validateAuthorizationCode(code)
-    const { access_token, scope, token_type } = tokens.data as {
+    const { access_token, scope } = tokens.data as {
       access_token: string
       scope: string
-      token_type: string
     }
     const githubUserResponse = await fetch("https://api.github.com/user", {
       headers: {
@@ -293,40 +305,36 @@ export class AuthService {
       avatar_url: string
     }
 
-    if (!githubUser.email) {
-      const emailsResponse = await fetch("https://api.github.com/user/emails", {
-        headers: {
-          Authorization: `Bearer ${access_token}`
-        }
-      })
-
-      if (!emailsResponse.ok) {
-        throw new BadRequestException()
+    const emailsResponse = await fetch("https://api.github.com/user/emails", {
+      headers: {
+        Authorization: `Bearer ${access_token}`
       }
+    })
 
-      const emails = (await emailsResponse.json()) as {
-        email: string
-        primary: boolean
-        verified: boolean
-      }[]
-
-      githubUser.email =
-        emails.find((e) => e.primary)?.email ?? emails[0]?.email ?? null
+    if (!emailsResponse.ok) {
+      throw new BadRequestException()
     }
 
-    if (!githubUser.email) {
+    const emails = (await emailsResponse.json()) as {
+      email: string
+      primary: boolean
+      verified: boolean
+    }[]
+
+    const githubEmail = emails.find((e) => e.primary) ?? emails[0] ?? null
+    if (!githubEmail) {
       throw new BadRequestException()
     }
 
     const user = await this.createOAuthAccount({
       providerId: String(githubUser.id),
       name: githubUser.name ?? githubUser.login,
-      email: githubUser.email,
+      email: githubEmail.email,
       provider: "github",
       image: githubUser.avatar_url,
       accessToken: access_token,
       scope: scope,
-      tokenType: token_type
+      emailVerified: githubEmail.verified
     })
 
     await this.createSession(user.id, req, res)
@@ -341,10 +349,91 @@ export class AuthService {
       redirectUrl.searchParams.set("new_user", "true")
     }
 
-    res
-      .clearCookie(COOKIES.githubState)
-      .clearCookie(COOKIES.redirectUrl)
-      .redirect(redirectUrl.toString())
+    res.clearCookie(COOKIES.githubState)
+    res.clearCookie(COOKIES.redirectUrl)
+    res.redirect(redirectUrl.toString())
+  }
+
+  googleLogin(res: Response, { redirect_url }: GoogleLoginDTO) {
+    const state = generateState()
+    const codeVerifier = generateCodeVerifier()
+    const url = this.google.createAuthorizationURL(state, codeVerifier, [
+      "openid",
+      "profile",
+      "email"
+    ])
+
+    const expires = new Date(Date.now() + 20 * 60 * 1000) // 20 minutes
+    res.cookie(COOKIES.googleState, state, cookieOpts(expires))
+    res.cookie(COOKIES.googleCodeVerifier, codeVerifier, cookieOpts(expires))
+    res.cookie(COOKIES.redirectUrl, redirect_url, cookieOpts(expires))
+    return { url: url.toString() }
+  }
+
+  async googleCallback(
+    req: Request,
+    res: Response,
+    { state, code }: GoogleCallbackDTO
+  ) {
+    const storedState = req.cookies[COOKIES.googleState]
+    const codeVerifier = req.cookies[COOKIES.googleCodeVerifier]
+
+    if (!storedState || storedState !== state || !codeVerifier) {
+      throw new BadRequestException()
+    }
+
+    const tokens = await this.google.validateAuthorizationCode(
+      code,
+      codeVerifier
+    )
+
+    const { access_token, id_token } = tokens.data as {
+      access_token: string
+      id_token: string
+    }
+
+    const googleUser = decodeIdToken(id_token) as {
+      sub: string
+      email: string
+      scope: string
+      name: string | null
+      picture: string | null
+      email_verified: boolean
+    }
+
+    if (!googleUser.email) {
+      throw new BadRequestException()
+    }
+
+    const user = await this.createOAuthAccount({
+      providerId: googleUser.sub,
+      name: googleUser.name ?? googleUser.email.split("@")[0],
+      email: googleUser.email,
+      provider: "google",
+      image: googleUser.picture,
+      accessToken: access_token,
+      scope: googleUser.scope,
+      emailVerified: googleUser.email_verified,
+      accessTokenExpiresAt: tokens.accessTokenExpiresAt(),
+      refreshToken: tokens.hasRefreshToken() ? tokens.refreshToken() : null
+    })
+
+    await this.createSession(user.id, req, res)
+
+    const clientUrl = this.env.get("CLIENT_URL")
+    const redirectUrl = new URL(
+      req.cookies[COOKIES.redirectUrl] ?? "",
+      clientUrl
+    )
+
+    if (user.isNew) {
+      redirectUrl.searchParams.set("new_user", "true")
+    }
+
+    res.clearCookie(COOKIES.googleState)
+    res.clearCookie(COOKIES.googleCodeVerifier)
+    res.clearCookie(COOKIES.redirectUrl)
+    res.redirect(redirectUrl.toString())
   }
 
   async logout(sessionId: string) {
@@ -415,6 +504,7 @@ export class AuthService {
     email,
     image,
     provider,
+    emailVerified,
     ...oauthParams
   }: {
     providerId: string
@@ -424,7 +514,9 @@ export class AuthService {
     image: string | null
     accessToken: string
     scope: string
-    tokenType: string
+    emailVerified: boolean
+    accessTokenExpiresAt?: Date | null
+    refreshToken?: string | null
   }) {
     const existingUser = await this.prisma.user.findUnique({
       where: { email }
@@ -450,7 +542,7 @@ export class AuthService {
       return { ...existingUser, isNew: false }
     } else {
       const newUser = await this.prisma.user.create({
-        data: { email, name, image }
+        data: { email, name, image, emailVerified }
       })
 
       await this.prisma.oAuthAccount.create({
