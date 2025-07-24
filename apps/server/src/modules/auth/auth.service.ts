@@ -339,10 +339,9 @@ export class AuthService {
 
     await this.createSession(user.id, req, res)
 
-    const clientUrl = this.env.get("CLIENT_URL")
     const redirectUrl = new URL(
       req.cookies[COOKIES.redirectUrl] ?? "",
-      clientUrl
+      this.env.get("CLIENT_URL")
     )
 
     if (user.isNew) {
@@ -420,10 +419,9 @@ export class AuthService {
 
     await this.createSession(user.id, req, res)
 
-    const clientUrl = this.env.get("CLIENT_URL")
     const redirectUrl = new URL(
       req.cookies[COOKIES.redirectUrl] ?? "",
-      clientUrl
+      this.env.get("CLIENT_URL")
     )
 
     if (user.isNew) {

@@ -21,6 +21,7 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetSession[]
   oAuthAccounts           OAuthAccount[]
+  documents               Document[]
 
   @@index([email])
   @@map("users")
@@ -82,4 +83,18 @@ model OAuthAccount {
   @@unique([userId, provider])
   @@index([userId, provider])
   @@map("oauth_accounts")
+}
+
+model Document {
+  id        String   @id @default(cuid()) @db.VarChar(36)
+  title     String   @db.VarChar(255)
+  url       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String @db.VarChar(36)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("documents")
 }

@@ -7,6 +7,7 @@ import { PrismaModule } from "./prisma/prisma.module"
 import { MailerModule } from "@nestjs-modules/mailer"
 import { EnvService } from "./env/env.service"
 import { AuthMiddleware } from "@/middleware/auth.middleware"
+import { DocsModule } from "./docs/docs.module"
 
 @Module({
   imports: [
@@ -25,7 +26,8 @@ import { AuthMiddleware } from "@/middleware/auth.middleware"
         }
       })
     }),
-    AuthModule
+    AuthModule,
+    DocsModule
   ],
   providers: [AuthMiddleware]
 })
